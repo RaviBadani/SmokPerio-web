@@ -1,0 +1,15 @@
+{
+  "name": "smokperio-load-testing",
+  "version": "2.0.0",
+  "description": "100 Concurrent Virtual Users 1-Minute Baseline & Stress Load Testing Engine for SmokPerio AI",
+  "main": "load-runner.js",
+  "scripts": {
+    "test:load": "node load-runner.js",
+    "report:excel": "node generate-load-excel.js",
+    "load:full": "node load-runner.js && node generate-load-excel.js"
+  },
+  "dependencies": {
+    "exceljs": "^4.4.0",
+    "node-fetch": "^2.7.0"
+  }
+}
