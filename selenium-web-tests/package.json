@@ -1,0 +1,15 @@
+{
+  "name": "smokperio-web-selenium-tests",
+  "version": "2.0.0",
+  "description": "500 End-to-End Automated Test Suite & Excel Report Generator for SmokPerio AI",
+  "main": "runner.js",
+  "scripts": {
+    "test": "node runner.js",
+    "report:excel": "node generate-excel-report.js",
+    "test:full": "node runner.js && node generate-excel-report.js"
+  },
+  "dependencies": {
+    "exceljs": "^4.4.0",
+    "node-fetch": "^2.7.0"
+  }
+}

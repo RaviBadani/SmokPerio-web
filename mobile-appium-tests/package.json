@@ -1,0 +1,21 @@
+{
+  "name": "smokperio-mobile-appium-tests",
+  "version": "2.0.0",
+  "description": "Appium Mobile Automation Test Suite for SmokPerio AI Native Android Application",
+  "main": "index.js",
+  "scripts": {
+    "test:mobile": "wdio run wdio.conf.js",
+    "test:auth": "wdio run wdio.conf.js --spec test/specs/auth.e2e.js",
+    "test:predictor": "wdio run wdio.conf.js --spec test/specs/predictor.e2e.js",
+    "test:patients": "wdio run wdio.conf.js --spec test/specs/patients.e2e.js"
+  },
+  "devDependencies": {
+    "@wdio/cli": "^8.24.0",
+    "@wdio/local-runner": "^8.24.0",
+    "@wdio/mocha-framework": "^8.24.0",
+    "@wdio/spec-reporter": "^8.24.0",
+    "appium": "^2.2.3",
+    "appium-uiautomator2-driver": "^2.35.0",
+    "chai": "^4.3.10"
+  }
+}
