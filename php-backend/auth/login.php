@@ -3,6 +3,8 @@ header("Access-Control-Allow-Origin: *");
 header("Access-Control-Allow-Headers: Content-Type, Authorization");
 header("Access-Control-Allow-Methods: POST, OPTIONS");
 header("Content-Type: application/json; charset=UTF-8");
+header("X-Content-Type-Options: nosniff");
+header("X-Frame-Options: DENY");
 
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     http_response_code(200);
@@ -32,7 +34,15 @@ try {
     $user = $stmt->fetch(PDO::FETCH_ASSOC);
 
     if ($user) {
-        $passwordMatches = password_verify($password, $user['password']) || $password === $user['password'];
+        $passwordMatches = password_verify($password, $user['password']);
+        
+        // Auto-upgrade legacy hash if needed
+        if (!$passwordMatches && $password === $user['password']) {
+            $passwordMatches = true;
+            $newHashed = password_hash($password, PASSWORD_BCRYPT);
+            $upStmt = $pdo->prepare("UPDATE practitioners SET password = :p WHERE id = :id");
+            $upStmt->execute([':p' => $newHashed, ':id' => $user['id']]);
+        }
         
         if ($passwordMatches) {
             $token = bin2hex(random_bytes(32));
@@ -55,12 +65,12 @@ try {
         }
     } else {
         http_response_code(401);
-        echo json_encode(["status" => "error", "message" => "User account not found"]);
+        echo json_encode(["status" => "error", "message" => "Invalid email or password"]);
         exit();
     }
 
 } catch (PDOException $e) {
     http_response_code(500);
-    echo json_encode(["status" => "error", "message" => "Server error: " . $e->getMessage()]);
+    echo json_encode(["status" => "error", "message" => "Authentication service temporarily unavailable."]);
 }
 ?>

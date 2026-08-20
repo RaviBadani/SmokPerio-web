@@ -1,16 +1,24 @@
 <?php
 /**
- * SmokPerio AI — Brevo SMTP Debug Script
- * Run from browser: http://localhost/smokperio/debug_smtp.php
- * Prints step-by-step SMTP conversation to diagnose exactly where it fails.
+ * SmokPerio AI — SMTP Diagnostics Utility (Protected)
  */
+header("X-Content-Type-Options: nosniff");
+header("X-Frame-Options: DENY");
+
+$authKey = isset($_GET['key']) ? $_GET['key'] : '';
+if ($authKey !== 'smokperio_debug_admin_key_2026') {
+    http_response_code(403);
+    echo "<h2 style='color:#b91c1c;font-family:sans-serif;'>403 Forbidden: Diagnostic tool is restricted to authorized personnel.</h2>";
+    exit();
+}
+
 require_once __DIR__ . '/config/mailer.php';
 
-echo "<pre style='font-family:monospace;font-size:14px;background:#1e1e1e;color:#d4d4d4;padding:20px;'>";
-echo "<b style='color:#4ec9b0;'>SmokPerio AI — SMTP Debug</b>\n\n";
+echo "<pre style='font-family:monospace;font-size:14px;background:#1e1e1e;color:#d4d4d4;padding:20px;border-radius:8px;'>";
+echo "<b style='color:#4ec9b0;'>SmokPerio AI — Protected SMTP Diagnostic Test</b>\n\n";
 
-$host = 'smtp-relay.brevo.com';
-$port = 587;
+$host = MAIL_SMTP_HOST;
+$port = MAIL_SMTP_PORT;
 
 echo "Connecting to {$host}:{$port}...\n";
 $socket = @fsockopen($host, $port, $errno, $errstr, 10);
@@ -20,7 +28,7 @@ if (!$socket) {
     echo "</pre>"; exit();
 }
 
-echo "<span style='color:#6a9955'>✅ TCP connected</span>\n\n";
+echo "<span style='color:#6a9955'>✅ TCP connection established</span>\n\n";
 
 $step = function($label, $cmd = null) use ($socket) {
     if ($cmd !== null) {
@@ -41,36 +49,31 @@ $step('Greeting');
 $step('EHLO', 'EHLO smokperio.local');
 $step('STARTTLS', 'STARTTLS');
 
-echo "Upgrading to TLS...\n";
+echo "Upgrading socket to TLS...\n";
 if (!stream_socket_enable_crypto($socket, true, STREAM_CRYPTO_METHOD_TLS_CLIENT)) {
-    echo "<span style='color:red'>❌ TLS upgrade FAILED — check OpenSSL in php.ini</span>\n";
+    echo "<span style='color:red'>❌ TLS handshake failed</span>\n";
     echo "</pre>"; fclose($socket); exit();
 }
-echo "<span style='color:#6a9955'>✅ TLS active</span>\n\n";
+echo "<span style='color:#6a9955'>✅ TLS Encryption Active</span>\n\n";
 
 $step('EHLO (post-TLS)', 'EHLO smokperio.local');
 $step('AUTH LOGIN', 'AUTH LOGIN');
 
-$user = SMTP_USER;
-$pass = SMTP_PASS;
-echo "→ [base64 of: {$user}]\n";
+$user = MAIL_SMTP_USER;
+$pass = str_replace(' ', '', MAIL_SMTP_PASS);
+echo "→ [Authentication Handshake with Gmail SMTP]\n";
 fputs($socket, base64_encode($user) . "\r\n");
 $r1 = '';
 while ($l = fgets($socket, 512)) { $r1 .= $l; if (substr($l,3,1)===' ') break; }
-echo "<span style='color:#4ec9b0'>← " . htmlspecialchars(trim($r1)) . "</span>\n\n";
 
-echo "→ [base64 of SMTP password]\n";
 fputs($socket, base64_encode($pass) . "\r\n");
 $authResp = '';
 while ($l = fgets($socket, 512)) { $authResp .= $l; if (substr($l,3,1)===' ') break; }
-$authColor = (strpos($authResp, '235') !== false) ? '#6a9955' : 'red';
-echo "<span style='color:{$authColor}'>← " . htmlspecialchars(trim($authResp)) . "</span>\n\n";
 
 if (strpos($authResp, '235') !== false) {
-    echo "<span style='color:#6a9955;font-size:16px'>✅ AUTH SUCCESSFUL — SMTP credentials are valid!</span>\n";
+    echo "<span style='color:#6a9955;font-size:16px'>✅ AUTH SUCCESSFUL — Gmail SMTP connection is fully operational!</span>\n";
 } else {
-    echo "<span style='color:red;font-size:16px'>❌ AUTH FAILED (535) — Credentials rejected by Brevo.\n";
-    echo "Fix: Go to brevo.com → Profile → SMTP & API → regenerate SMTP key</span>\n";
+    echo "<span style='color:red;font-size:16px'>❌ AUTH FAILED: " . htmlspecialchars(trim($authResp)) . "</span>\n";
 }
 
 fputs($socket, "QUIT\r\n");

@@ -3,6 +3,8 @@ header("Access-Control-Allow-Origin: *");
 header("Access-Control-Allow-Headers: Content-Type, Authorization");
 header("Access-Control-Allow-Methods: POST, OPTIONS");
 header("Content-Type: application/json; charset=UTF-8");
+header("X-Content-Type-Options: nosniff");
+header("X-Frame-Options: DENY");
 
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     http_response_code(200);
@@ -25,8 +27,34 @@ if (empty($email) || empty($newPassword)) {
     exit();
 }
 
+if (strlen($newPassword) < 6) {
+    http_response_code(400);
+    echo json_encode(["status" => "error", "message" => "New password must be at least 6 characters long."]);
+    exit();
+}
+
 try {
     if (isset($pdo)) {
+        // Enforce OTP validation if an OTP was issued for this email
+        if (!empty($otp)) {
+            $checkStmt = $pdo->prepare("SELECT id FROM password_resets WHERE LOWER(email) = LOWER(:email) AND otp = :otp AND expires_at > NOW()");
+            $checkStmt->execute([':email' => $email, ':otp' => $otp]);
+            if (!$checkStmt->fetch()) {
+                http_response_code(400);
+                echo json_encode(["status" => "error", "message" => "Invalid or expired OTP code."]);
+                exit();
+            }
+        } else {
+            // Check if there is an active reset request that required an OTP
+            $checkPending = $pdo->prepare("SELECT id FROM password_resets WHERE LOWER(email) = LOWER(:email) AND expires_at > NOW()");
+            $checkPending->execute([':email' => $email]);
+            if ($checkPending->fetch()) {
+                http_response_code(400);
+                echo json_encode(["status" => "error", "message" => "OTP verification is required to reset password."]);
+                exit();
+            }
+        }
+
         $hashed = password_hash($newPassword, PASSWORD_BCRYPT);
         $stmt = $pdo->prepare("UPDATE practitioners SET password = :pwd WHERE LOWER(email) = LOWER(:email)");
         $stmt->execute(['pwd' => $hashed, 'email' => $email]);

@@ -3,6 +3,8 @@ header("Access-Control-Allow-Origin: *");
 header("Access-Control-Allow-Headers: Content-Type, Authorization");
 header("Access-Control-Allow-Methods: POST, OPTIONS");
 header("Content-Type: application/json; charset=UTF-8");
+header("X-Content-Type-Options: nosniff");
+header("X-Frame-Options: DENY");
 
 if ($_SERVER['REQUEST_METHOD'] === 'OPTIONS') {
     http_response_code(200);
@@ -15,7 +17,7 @@ $patientId = isset($_GET['id']) ? (int)$_GET['id'] : (isset($_POST['patient_id']
 $uploadDir = __DIR__ . '/../uploads/';
 
 if (!file_exists($uploadDir)) {
-    mkdir($uploadDir, 0777, true);
+    mkdir($uploadDir, 0755, true);
 }
 
 $filePath = null;
@@ -24,18 +26,68 @@ $furcation = false;
 $analysis = null;
 
 if (isset($_FILES['file']) && $_FILES['file']['error'] === UPLOAD_ERR_OK) {
-    $ext = strtolower(pathinfo($_FILES['file']['name'], PATHINFO_EXTENSION));
-    if (empty($ext)) $ext = 'jpg';
-    $fileName = 'radiograph_' . ($patientId > 0 ? 'pat_' . $patientId . '_' : 'sim_') . time() . '_' . mt_rand(100, 999) . '.' . $ext;
+    $tempFile = $_FILES['file']['tmp_name'];
+    $origName = basename($_FILES['file']['name']);
+    $ext = strtolower(pathinfo($origName, PATHINFO_EXTENSION));
+
+    // Security: Whitelist allowed image extensions only
+    $allowedExtensions = ['jpg', 'jpeg', 'png', 'webp'];
+    if (!in_array($ext, $allowedExtensions, true)) {
+        http_response_code(400);
+        echo json_encode([
+            "status" => "error",
+            "message" => "Invalid file extension. Only JPG, PNG, and WEBP radiograph images are permitted."
+        ]);
+        exit();
+    }
+
+    // Security: Validate real MIME type via finfo
+    $allowedMimes = ['image/jpeg', 'image/png', 'image/webp'];
+    $mimeType = 'application/octet-stream';
+    if (function_exists('finfo_open')) {
+        $finfo = finfo_open(FILEINFO_MIME_TYPE);
+        $mimeType = finfo_file($finfo, $tempFile);
+        finfo_close($finfo);
+    } elseif (function_exists('mime_content_type')) {
+        $mimeType = mime_content_type($tempFile);
+    }
+
+    if (!in_array($mimeType, $allowedMimes, true)) {
+        http_response_code(400);
+        echo json_encode([
+            "status" => "error",
+            "message" => "Invalid file content type ({$mimeType}). Only genuine radiograph images are allowed."
+        ]);
+        exit();
+    }
+
+    // Security: Validate image dimensions and header integrity
+    $imgInfo = @getimagesize($tempFile);
+    if ($imgInfo === false) {
+        http_response_code(400);
+        echo json_encode([
+            "status" => "error",
+            "message" => "Corrupted or invalid image file structure."
+        ]);
+        exit();
+    }
+
+    // Safe sanitized random filename
+    $secureRandom = bin2hex(random_bytes(8));
+    $fileName = 'radiograph_' . ($patientId > 0 ? 'pat_' . $patientId . '_' : 'sim_') . time() . '_' . $secureRandom . '.' . $ext;
     $targetPath = $uploadDir . $fileName;
 
-    if (move_uploaded_file($_FILES['file']['tmp_name'], $targetPath)) {
+    if (move_uploaded_file($tempFile, $targetPath)) {
         $filePath = 'uploads/' . $fileName;
 
         // Perform Computer Vision Analysis on the Dental Radiograph
         $analysis = analyzeDentalRadiograph($targetPath);
         $boneLoss = $analysis['estimated_bone_loss'];
         $furcation = $analysis['furcation_detected'];
+    } else {
+        http_response_code(500);
+        echo json_encode(["status" => "error", "message" => "Failed to save uploaded radiograph."]);
+        exit();
     }
 } else {
     // Generate simulated clinical radiograph analysis if raw binary was posted
@@ -110,9 +162,9 @@ function analyzeDentalRadiograph($imagePath) {
 
         $totalLuma = 0;
         $lumaValues = [];
-        $upperLuma = 0; // Coronal / alveolar crest third
-        $midLuma   = 0; // Middle root third
-        $lowerLuma = 0; // Apical third
+        $upperLuma = 0;
+        $midLuma   = 0;
+        $lowerLuma = 0;
         $upperCount = 0; $midCount = 0; $lowerCount = 0;
 
         for ($y = 0; $y < $sampleH; $y++) {
@@ -161,17 +213,13 @@ function analyzeDentalRadiograph($imagePath) {
         $edgeDensity = round(min(0.95, max(0.50, ($edgeSum / ($pixelCount / 4)) / 100000.0)), 2);
         $boneClarity = round(min(0.98, max(0.65, ($contrastScore * 0.5 + $edgeDensity * 0.5) + 0.1)), 2);
 
-        // Bone loss calculation:
-        // Coronal alveolar crest radiolucency relative to mid/apical root density
         $avgUpper = $upperCount > 0 ? ($upperLuma / $upperCount) : 100;
         $avgMid   = $midCount > 0 ? ($midLuma / $midCount) : 120;
         $avgLower = $lowerCount > 0 ? ($lowerLuma / $lowerCount) : 140;
 
-        // Higher radiolucency (darkness) in upper third correlates with alveolar bone loss
         $crestalLossRatio = ($avgLower - $avgUpper) / max(1.0, $avgLower);
         $boneLoss = round(min(65.0, max(12.0, ($crestalLossRatio * 50.0 + ($stdDev / 128.0) * 20.0 + 15.0))), 1);
 
-        // Furcation detection: Check middle inter-radicular zone for significant radiolucency dip
         if ($avgMid < ($avgLower * 0.82) && $boneLoss >= 30.0) {
             $furcation = true;
         }
